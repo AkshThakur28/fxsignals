@@ -1,53 +1,42 @@
-import { Icon } from "@iconify/react/dist/iconify.js";
+import { CKEditor } from '@ckeditor/ckeditor5-react';
+import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
+import { Icon } from "@iconify/react";
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
 
-const InputField = ({ id, label, type, value, onChange }) => (
-    <div className="mb-20">
-        <label htmlFor={id} className="form-label fw-semibold text-primary-light text-sm mb-8">
-            {label} <span className="text-danger-600">*</span>
-        </label>
-        <input
-            type={type}
-            className="form-control radius-8"
-            id={id}
-            placeholder={`Enter ${label}`}
-            value={value}
-            onChange={onChange}
-            required
-        />
-    </div>
-);
-
-const EditNewsLayer = () => {
+const EditNewsLayers = () => {
+    const location = useLocation();
     const navigate = useNavigate();
+    const newsId = location.state?.id;
 
+    const [formData, setFormData] = useState({
+        id: "",
+        title: "",
+        publish_date: "",
+        news_package: "",
+        category: "",
+        sub_category: "",
+        news_type: "",
+        news_desc: "",
+        author: "",
+        created_by: "",
+    });
+
+    const [newsImage, setNewsImage] = useState(null);
     const [newsPackages, setNewsPackages] = useState([]);
     const [categories, setCategories] = useState([]);
     const [subCategories, setSubCategories] = useState([]);
     const [newsTypes, setNewsTypes] = useState([]);
 
     useEffect(() => {
-        fetch("http://localhost:5000/admin/auth/me", {
-            credentials: "include",
-        })
-            .then((res) => {
-                if (!res.ok) throw new Error("Not logged in");
-                return res.json();
-            })
-            .then((data) => {
-                const { username, id } = data.user;
-                setFormData((prev) => ({
-                    ...prev,
-                    author: username,
-                    created_by: id,
-                }));
-            })
-            .catch((err) => {
-                console.error("Failed to fetch user:", err);
-            });
+        if (!newsId) {
+            alert("No news ID provided.");
+            navigate("/market-outlook");
+            return;
+        }
 
+        // Fetch dropdowns
         fetch("http://localhost:5000/admin/news/news-packages")
             .then((res) => res.json())
             .then((data) => setNewsPackages(data));
@@ -63,21 +52,36 @@ const EditNewsLayer = () => {
         fetch("http://localhost:5000/admin/news/news-types")
             .then((res) => res.json())
             .then((data) => setNewsTypes(data));
-    }, []);
 
-    const [formData, setFormData] = useState({
-        title: "",
-        publish_date: "",
-        news_package: "",
-        category: "",
-        sub_category: "",
-        news_type: "",
-        news_desc: "",
-        author: "",
-        created_by: "",
-    });
+        // Fetch the news data by ID
+        // OLD (❌ wrong path)
+        // axios.get(`http://localhost:5000/admin/news/news/${newsId}`, { withCredentials: true })
 
-    const [newsImage, setNewsImage] = useState(null);
+        // ✅ NEW - Correct API route
+        axios
+            .get(`http://localhost:5000/admin/news/news_detail/${newsId}`, { withCredentials: true })
+            .then((res) => {
+                const news = res.data.news;
+                setFormData({
+                    id: news.id,
+                    title: news.title,
+                    publish_date: news.publish_date.split("T")[0],
+                    news_package: news.news_package,
+                    category: news.category,
+                    sub_category: news.sub_category,
+                    news_type: news.news_type,
+                    news_desc: news.news_desc,
+                    author: news.author,
+                    created_by: news.created_by,
+                });
+            })
+            .catch((err) => {
+                console.error(err);
+                alert("Failed to load news data.");
+                navigate("/market-outlook");
+            });
+
+    }, [newsId, navigate]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -90,34 +94,25 @@ const EditNewsLayer = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
-        if (!newsImage) {
-            alert("Please upload a news image.");
-            return;
-        }
-
         const data = new FormData();
         Object.keys(formData).forEach((key) => data.append(key, formData[key]));
-        data.append("news_image", newsImage);
+        if (newsImage) data.append("news_image", newsImage);
 
         try {
-            const response = await axios.post(
-                "http://localhost:5000/admin/news/add_news",
+            const response = await axios.put(
+                `http://localhost:5000/admin/news/news_edit/${formData.id}`,
                 data,
                 {
-                    headers: {
-                        "Content-Type": "multipart/form-data",
-                    },
+                    headers: { "Content-Type": "multipart/form-data" },
                     withCredentials: true,
                 }
             );
 
             alert(response.data.message);
             navigate("/market-outlook");
-
         } catch (error) {
             console.error(error);
-            alert("Failed to add news.");
+            alert("Failed to update news.");
         }
     };
 
@@ -128,12 +123,7 @@ const EditNewsLayer = () => {
                     <h5 className="card-title mb-0">Edit News</h5>
                 </div>
                 <div className="card-body">
-                    <form
-                        className="row gy-3 needs-validation"
-                        onSubmit={handleSubmit}
-                        encType="multipart/form-data"
-                        noValidate
-                    >
+                    <form className="row gy-3 needs-validation" onSubmit={handleSubmit} encType="multipart/form-data" noValidate>
                         <div className="col-md-6">
                             <label className="form-label">News Title</label>
                             <input
@@ -152,8 +142,8 @@ const EditNewsLayer = () => {
                                 className="form-control"
                                 type="file"
                                 name="news_image"
+                                accept="image/*"
                                 onChange={handleFileChange}
-                                required
                             />
                         </div>
 
@@ -176,7 +166,6 @@ const EditNewsLayer = () => {
                                 className="form-control"
                                 value={formData.news_package}
                                 onChange={handleChange}
-                                required
                             >
                                 <option value="">Select News Package</option>
                                 {newsPackages.map((pkg) => (
@@ -194,7 +183,6 @@ const EditNewsLayer = () => {
                                 className="form-control"
                                 value={formData.category}
                                 onChange={handleChange}
-                                required
                             >
                                 <option value="">Select Category</option>
                                 {categories.map((cat) => (
@@ -212,7 +200,6 @@ const EditNewsLayer = () => {
                                 className="form-control"
                                 value={formData.sub_category}
                                 onChange={handleChange}
-                                required
                             >
                                 <option value="">Select Sub Category</option>
                                 {subCategories.map((sub) => (
@@ -230,7 +217,6 @@ const EditNewsLayer = () => {
                                 className="form-control"
                                 value={formData.news_type}
                                 onChange={handleChange}
-                                required
                             >
                                 <option value="">Select News Type</option>
                                 {newsTypes.map((type) => (
@@ -241,25 +227,24 @@ const EditNewsLayer = () => {
                             </select>
                         </div>
 
-                        <div className="col-md-6">
+                        <div className="col-md-12">
                             <label className="form-label">News Description</label>
-                            <textarea
-                                name="news_desc"
-                                className="form-control"
-                                value={formData.news_desc}
-                                onChange={handleChange}
-                                rows={4}
-                                required
+                            <CKEditor
+                                editor={ClassicEditor}
+                                data={formData.news_desc || ""} 
+                                onChange={(event, editor) => {
+                                    const data = editor.getData();
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        news_desc: data,
+                                    }));
+                                }}
                             />
                         </div>
 
-                        {/* Hidden fields for created_by and author */}
+                        {/* Hidden Fields */}
                         <input type="hidden" name="author" value={formData.author} />
-                        <input
-                            type="hidden"
-                            name="created_by"
-                            value={formData.created_by}
-                        />
+                        <input type="hidden" name="created_by" value={formData.created_by} />
 
                         <div className="col-12">
                             <button className="btn btn-primary-600" type="submit">
@@ -273,4 +258,4 @@ const EditNewsLayer = () => {
     );
 };
 
-export default EditNewsLayer;
+export default EditNewsLayers;
