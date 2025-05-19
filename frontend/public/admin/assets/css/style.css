@@ -343,6 +343,18 @@
   all: revert;
 }
 
+.custom-quill {
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 8px;
+    background-color: #fff;
+    min-height: 200px;
+}
+
+.custom-quill .ql-container {
+    border: none;
+}
+
 .image-container {
   position: relative;
   display: inline-block;

@@ -1,9 +1,9 @@
-import { CKEditor } from '@ckeditor/ckeditor5-react';
-import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
-import { Icon } from "@iconify/react";
 import React, { useState, useEffect } from "react";
+import { Icon } from "@iconify/react";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
 
 const EditNewsLayers = () => {
     const location = useLocation();
@@ -36,7 +36,6 @@ const EditNewsLayers = () => {
             return;
         }
 
-        // Fetch dropdowns
         fetch("http://localhost:5000/admin/news/news-packages")
             .then((res) => res.json())
             .then((data) => setNewsPackages(data));
@@ -53,11 +52,6 @@ const EditNewsLayers = () => {
             .then((res) => res.json())
             .then((data) => setNewsTypes(data));
 
-        // Fetch the news data by ID
-        // OLD (❌ wrong path)
-        // axios.get(`http://localhost:5000/admin/news/news/${newsId}`, { withCredentials: true })
-
-        // ✅ NEW - Correct API route
         axios
             .get(`http://localhost:5000/admin/news/news_detail/${newsId}`, { withCredentials: true })
             .then((res) => {
@@ -80,7 +74,6 @@ const EditNewsLayers = () => {
                 alert("Failed to load news data.");
                 navigate("/market-outlook");
             });
-
     }, [newsId, navigate]);
 
     const handleChange = (e) => {
@@ -229,20 +222,17 @@ const EditNewsLayers = () => {
 
                         <div className="col-md-12">
                             <label className="form-label">News Description</label>
-                            <CKEditor
-                                editor={ClassicEditor}
-                                data={formData.news_desc || ""} 
-                                onChange={(event, editor) => {
-                                    const data = editor.getData();
-                                    setFormData((prev) => ({
-                                        ...prev,
-                                        news_desc: data,
-                                    }));
-                                }}
-                            />
+                            <ReactQuill
+    className="custom-quill"
+    theme="snow"
+    value={formData.news_desc}
+    onChange={(value) =>
+        setFormData((prev) => ({ ...prev, news_desc: value }))
+    }
+/>
+
                         </div>
 
-                        {/* Hidden Fields */}
                         <input type="hidden" name="author" value={formData.author} />
                         <input type="hidden" name="created_by" value={formData.created_by} />
 
