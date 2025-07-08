@@ -6,11 +6,11 @@ router.post('/signup', authController.signup);
 
 router.post('/login', authController.login);
 
-router.post('/forgot_password', authController.requestPasswordReset);
+router.post('/forgot-password', authController.requestPasswordReset);
 
-router.post('/verify_otp', authController.verifyOTP);
+router.post('/verify-otp', authController.verifyOTP);
 
-router.post('/reset_password', authController.resetPassword);
+router.post('/reset-password', authController.resetPassword);
 
 router.get('/logout', authController.logout);
 

@@ -1,23 +1,57 @@
+const { parsePhoneNumberFromString } = require("libphonenumber-js");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const db = require("../../config/db");
 const AuthModel = require("../../models/admin/authModel");
 
+const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const validateName = (name) => /^[A-Za-z]+$/.test(name);
+const getMobileValidationError = (mobile) => {
+  const phoneNumber = parsePhoneNumberFromString(mobile);
+  if (!phoneNumber) return "Invalid mobile number format.";
+  if (!phoneNumber.isValid())
+    return `Invalid mobile number for country ${phoneNumber.country}.`;
+  return null;
+};
+const validatePassword = (password) => password.length >= 5;
+
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
 const authController = {
   signup: async (req, res) => {
     const { firstname, lastname, email, mobile_no, password, confirmPassword } =
       req.body;
 
-    if (
-      !firstname ||
-      !lastname ||
-      !email ||
-      !mobile_no ||
-      !password ||
-      !confirmPassword
-    ) {
-      return res.status(400).json({ message: "All fields are required." });
+    if (!firstname || !validateName(firstname)) {
+      return res.status(400).json({
+        message: "Invalid or missing firstname. Only alphabets are allowed.",
+      });
+    }
+
+    if (!lastname || !validateName(lastname)) {
+      return res.status(400).json({
+        message: "Invalid or missing lastname. Only alphabets are allowed.",
+      });
+    }
+
+    if (!email || !validateEmail(email)) {
+      return res.status(400).json({ message: "Invalid or missing email." });
+    }
+
+    if (!mobile_no) {
+      return res.status(400).json({ message: "Mobile number is required." });
+    }
+
+    const mobileError = getMobileValidationError(mobile_no);
+    if (mobileError) {
+      return res.status(400).json({ message: mobileError });
+    }
+
+    if (!password || !validatePassword(password)) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 5 characters long." });
     }
 
     if (password !== confirmPassword) {
@@ -36,21 +70,14 @@ const authController = {
       const username = `${firstname} ${lastname}`.trim();
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      await db
-        .promise()
-        .query(
-          "INSERT INTO users (username, firstname, lastname, email, mobile_no, password, is_admin, is_premium, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())",
-          [
-            username,
-            firstname,
-            lastname,
-            email,
-            mobile_no,
-            hashedPassword,
-            0,
-            0,
-          ]
-        );
+      await AuthModel.createUser({
+        username,
+        firstname,
+        lastname,
+        email,
+        mobile_no,
+        hashedPassword,
+      });
 
       res.status(201).json({ message: "User registered successfully." });
     } catch (error) {
@@ -62,10 +89,14 @@ const authController = {
   login: async (req, res) => {
     const { email, password } = req.body;
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({ message: "Email and Password are required." });
+    if (!email || !validateEmail(email)) {
+      return res.status(400).json({ message: "Invalid or missing email." });
+    }
+
+    if (!password || !validatePassword(password)) {
+      return res.status(400).json({
+        message: "Invalid or missing password. Must be minimum 5 digits long.",
+      });
     }
 
     try {
@@ -90,17 +121,25 @@ const authController = {
 
       const { password: _, created_at, updated_at, ...sessionUser } = user;
 
-      req.session.user = sessionUser;
+      req.session.user = {
+        fullname: user.username,
+        email: user.email,
+        role: user.role_name,
+        mobile: user.mobile_no,
+      };
+
+      req.session.cookie.maxAge = SESSION_TIMEOUT_MS;
 
       res.status(200).json({
         message: "Login successful",
         user: req.session.user,
       });
     } catch (error) {
-      console.error("Error during login:", error); 
-      return res.status(500).json({ message: error.message || "An error occurred. Please try again." });
+      console.error("Error during login:", error);
+      return res
+        .status(500)
+        .json({ message: "An error occurred. Please try again." });
     }
-
   },
 
   me: (req, res) => {
@@ -116,9 +155,7 @@ const authController = {
       if (err) {
         return res
           .status(500)
-          .json({
-            message: "An error occurred while logging out. Please try again.",
-          });
+          .json({ message: "Error logging out. Please try again." });
       }
       res.clearCookie("connect.sid");
       res.status(200).json({ message: "Logged out successfully." });
@@ -127,85 +164,94 @@ const authController = {
 
   requestPasswordReset: async (req, res) => {
     const { email } = req.body;
-
     if (!email) {
       return res.status(400).json({ message: "Email is required." });
     }
 
     try {
-      const [user] = await db
+      const [[user]] = await db
         .promise()
         .query("SELECT * FROM users WHERE email = ?", [email]);
+      if (!user) return res.status(404).json({ message: "User not found." });
 
-      if (user.length === 0) {
+      const { inCooldown, maxReached } = await AuthModel.canSendOTP(email);
+
+      if (maxReached) {
+        return res.status(429).json({
+          message: "OTP limit reached for today. Try again tomorrow.",
+        });
+      }
+
+      if (inCooldown) {
         return res
-          .status(404)
-          .json({ message: "User with this email does not exist." });
+          .status(429)
+          .json({ message: "Too many OTP requests. Please wait 10 minutes." });
       }
 
       const otp = crypto.randomInt(100000, 999999).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-      AuthModel.saveOTP(email, otp, expiresAt, (err) => {
-        if (err) {
-          return res
-            .status(500)
-            .json({
-              message: "Could not process the request. Please try again.",
-            });
-        }
+      await AuthModel.saveOTP(email, otp, expiresAt);
 
-        const transporter = nodemailer.createTransport({
-          service: "Gmail",
-          auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS,
-          },
-        });
+      req.session.resetEmail = email;
 
-        transporter.sendMail({
-          from: process.env.EMAIL_USER,
-          to: email,
-          subject: "Password Reset OTP",
-          text: `Your OTP is ${otp}. It expires in 10 minutes.`,
-        });
-
-        res.status(200).json({ message: "OTP sent to email." });
+      const transporter = nodemailer.createTransport({
+        service: "Gmail",
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
       });
-    } catch (error) {
-      console.error("Error during password reset request:", error);
-      res.status(500).json({ message: "An error occurred. Please try again." });
+
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: "Your Password Reset OTP",
+        text: `Your OTP is ${otp}. It is valid for 10 minutes.`,
+      });
+
+      res.status(200).json({ message: "OTP sent successfully." });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to send OTP. Try again." });
     }
   },
 
-  verifyOTP: (req, res) => {
-    const { email, otp } = req.body;
+  verifyOTP: async (req, res) => {
+    const { otp } = req.body;
+    const email = req.session.resetEmail;
 
     if (!email || !otp) {
-      return res.status(400).json({ message: "Email and OTP are required." });
+      return res
+        .status(400)
+        .json({ message: "OTP verification requires session email and OTP." });
     }
 
-    AuthModel.verifyOTP(email, otp, (err, result) => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ message: "An error occurred. Please try again." });
-      }
+    try {
+      const result = await AuthModel.verifyOTP(email, otp);
 
-      if (result === "expired") {
+      if (result.status === "expired") {
         return res.status(400).json({ message: "OTP has expired." });
       }
 
-      if (!result) {
-        return res.status(400).json({ message: "Invalid OTP." });
+      if (result.status === "invalid") {
+        return res
+          .status(400)
+          .json({ message: "Invalid or already used OTP." });
       }
 
-      res.status(200).json({ message: "OTP verified successfully." });
-    });
+      req.session.resetVerified = true;
+
+      return res.status(200).json({ message: "OTP verified successfully." });
+    } catch (err) {
+      console.error("OTP verification failed:", err);
+      return res.status(500).json({ message: "Failed to verify OTP." });
+    }
   },
 
   resetPassword: (req, res) => {
-    const { email, password, confirmPassword } = req.body;
+    const { password, confirmPassword } = req.body;
+    const email = req.session.resetEmail;
 
     if (!email || !password || !confirmPassword) {
       return res.status(400).json({ message: "All fields are required." });
@@ -215,15 +261,28 @@ const authController = {
       return res.status(400).json({ message: "Passwords do not match." });
     }
 
-    AuthModel.resetPassword(email, password, (err) => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ message: "An error occurred. Please try again." });
-      }
+    if (!req.session.resetVerified) {
+      return res.status(401).json({ message: "OTP verification required." });
+    }
 
-      res.status(200).json({ message: "Password reset successfully." });
-    });
+    try {
+      console.log("Password Type:", typeof password, "| Value:", password);
+      const hashedPassword = bcrypt.hashSync(password, 10); 
+
+      AuthModel.resetPassword(email, hashedPassword)
+        .then(() => {
+          delete req.session.resetEmail;
+          delete req.session.resetVerified;
+          res.status(200).json({ message: "Password reset successfully." });
+        })
+        .catch((err) => {
+          console.error("Password reset failed:", err);
+          res.status(500).json({ message: "Failed to reset password." });
+        });
+    } catch (err) {
+      console.error("Password reset failed:", err);
+      res.status(500).json({ message: "Failed to reset password." });
+    }
   },
 };
 

@@ -1,37 +1,31 @@
-const cors = require("cors");
-const express = require('express');
-const path = require('path');
-const session = require('express-session');
-const bodyParser = require('body-parser');
-const fs = require('fs');
 require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const session = require('express-session');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(cors({
-  origin: 'http://localhost:3000', 
-  credentials: true, 
+  origin: 'http://localhost:3000',
+  credentials: true,
 }));
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.use(session({
-  secret: 'mysecret',
-  resave: false,
-  saveUninitialized: false,
-}));
-
-app.use(session({
-  secret: 'mysecret',
+  secret: process.env.SESSION_SECRET || 'mysecret',
   resave: false,
   saveUninitialized: false,
   cookie: {
     secure: false,
     sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000
+    maxAge: 30 * 60 * 1000 // 30 mins
   }
 }));
 
@@ -40,7 +34,6 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
   console.log('Uploads directory created.');
 }
-app.use(express.static(path.join(__dirname, 'public')));
 
 const routes = {
   authRoutes: require('./routes/admin/authRoutes'),

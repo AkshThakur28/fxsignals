@@ -1,41 +1,94 @@
-const db = require('../../config/db');
-const bcrypt = require('bcryptjs');
+const db = require("../../config/db");
+const bcrypt = require("bcryptjs");
 
 const AuthModel = {
-  saveOTP: (email, otp, expiresAt, callback) => {
+  createUser: async (userData) => {
     const query = `
-      INSERT INTO password_reset (email, otp, expires_at) 
-      VALUES (?, ?, ?) 
-      ON DUPLICATE KEY UPDATE otp = ?, expires_at = ?
-    `;
-    db.query(query, [email, otp, expiresAt, otp, expiresAt], callback);
+    INSERT INTO users 
+    (username, firstname, lastname, email, mobile_no, password, is_admin, is_premium, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+  `;
+    const values = [
+      userData.username,
+      userData.firstname,
+      userData.lastname,
+      userData.email,
+      userData.mobile_no,
+      userData.hashedPassword,
+      2,
+      0,
+    ];
+    return db.promise().query(query, values);
   },
 
-  verifyOTP: (email, otp, callback) => {
-    const query = `
-      SELECT * FROM password_reset 
-      WHERE email = ? AND otp = ?
-    `;
-    db.query(query, [email, otp], (err, results) => {
-      if (err) return callback(err); 
-      if (results.length === 0) return callback(null, false);
-      const { expires_at } = results[0];
-      if (new Date() > new Date(expires_at)) {
-        return callback(null, 'expired'); 
-      }
+  async canSendOTP(email) {
+    const [count10Min] = await db.promise().query(
+      `
+      SELECT COUNT(*) as count FROM password_otps
+      WHERE email = ? AND created_at > (NOW() - INTERVAL 10 MINUTE)
+    `,
+      [email]
+    );
 
-      callback(null, 'valid'); 
-    });
+    const [countDay] = await db.promise().query(
+      `
+      SELECT COUNT(*) as count FROM password_otps
+      WHERE email = ? AND created_at > (NOW() - INTERVAL 1 DAY)
+    `,
+      [email]
+    );
+
+    return {
+      inCooldown: count10Min[0].count >= 3,
+      maxReached: countDay[0].count >= 10,
+    };
   },
 
-  resetPassword: (email, newPassword, callback) => {
-    const hashedPassword = bcrypt.hashSync(newPassword, 10); 
+  async saveOTP(email, otp, expiresAt) {
     const query = `
-      UPDATE users 
-      SET password = ? 
-      WHERE email = ?
+      INSERT INTO password_otps (email, otp, expires_at) 
+      VALUES (?, ?, ?)
     `;
-    db.query(query, [hashedPassword, email], callback);
+    return db.promise().query(query, [email, otp, expiresAt]);
+  },
+
+  async verifyOTP(email, otp) {
+    const [rows] = await db.promise().query(
+      `
+      SELECT * FROM password_otps 
+      WHERE email = ? AND otp = ? AND used = FALSE
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+      [email, otp]
+    );
+
+    if (rows.length === 0) return { status: "invalid" };
+
+    const record = rows[0];
+
+    if (new Date(record.expires_at) < new Date()) {
+      return { status: "expired" };
+    }
+
+    await db.promise().query(
+      `
+      UPDATE password_otps SET used = TRUE 
+      WHERE id = ?
+    `,
+      [record.id]
+    );
+
+    return { status: "valid" };
+  },
+
+  resetPassword: async (email, hashedPassword) => {
+    const query = `
+    UPDATE users 
+    SET password = ? 
+    WHERE email = ?
+  `;
+    return db.promise().query(query, [hashedPassword, email]);
   },
 
   getUserByEmail: (email, callback) => {
