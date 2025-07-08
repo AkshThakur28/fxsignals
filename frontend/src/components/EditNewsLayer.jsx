@@ -2,8 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Icon } from "@iconify/react";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
+import CKEditorClassic from "../components/CKEditorClassic";
 
 const EditNewsLayers = () => {
     const location = useLocation();
@@ -23,6 +22,7 @@ const EditNewsLayers = () => {
         created_by: "",
     });
 
+    const [isLoaded, setIsLoaded] = useState(false);
     const [newsImage, setNewsImage] = useState(null);
     const [newsPackages, setNewsPackages] = useState([]);
     const [categories, setCategories] = useState([]);
@@ -53,7 +53,9 @@ const EditNewsLayers = () => {
             .then((data) => setNewsTypes(data));
 
         axios
-            .get(`http://localhost:5000/admin/news/news_detail/${newsId}`, { withCredentials: true })
+            .get(`http://localhost:5000/admin/news/news_detail/${newsId}`, {
+                withCredentials: true,
+            })
             .then((res) => {
                 const news = res.data.news;
                 setFormData({
@@ -67,7 +69,11 @@ const EditNewsLayers = () => {
                     news_desc: news.news_desc,
                     author: news.author,
                     created_by: news.created_by,
+                    news_image: news.news_image,
                 });
+
+                setIsLoaded(true);
+
             })
             .catch((err) => {
                 console.error(err);
@@ -89,8 +95,9 @@ const EditNewsLayers = () => {
         e.preventDefault();
         const data = new FormData();
         Object.keys(formData).forEach((key) => data.append(key, formData[key]));
-        if (newsImage) data.append("news_image", newsImage);
-
+        if (newsImage) {
+            data.append("news_image", newsImage);
+        }
         try {
             const response = await axios.put(
                 `http://localhost:5000/admin/news/news_edit/${formData.id}`,
@@ -100,7 +107,6 @@ const EditNewsLayers = () => {
                     withCredentials: true,
                 }
             );
-
             alert(response.data.message);
             navigate("/market-outlook");
         } catch (error) {
@@ -116,7 +122,12 @@ const EditNewsLayers = () => {
                     <h5 className="card-title mb-0">Edit News</h5>
                 </div>
                 <div className="card-body">
-                    <form className="row gy-3 needs-validation" onSubmit={handleSubmit} encType="multipart/form-data" noValidate>
+                    <form
+                        className="row gy-3 needs-validation"
+                        onSubmit={handleSubmit}
+                        encType="multipart/form-data"
+                        noValidate
+                    >
                         <div className="col-md-6">
                             <label className="form-label">News Title</label>
                             <input
@@ -222,19 +233,25 @@ const EditNewsLayers = () => {
 
                         <div className="col-md-12">
                             <label className="form-label">News Description</label>
-                            <ReactQuill
-    className="custom-quill"
-    theme="snow"
-    value={formData.news_desc}
-    onChange={(value) =>
-        setFormData((prev) => ({ ...prev, news_desc: value }))
-    }
-/>
-
+                            {isLoaded && (
+                                <CKEditorClassic
+                                    id="news_desc_editor"
+                                    value={formData.news_desc}
+                                    onChange={(data) => {
+                                        setFormData((prev) => ({ ...prev, news_desc: data }));
+                                    }}
+                                />
+                            )}
                         </div>
 
+                        <input type="hidden" name="existing_image" value={formData.news_image} />
+
                         <input type="hidden" name="author" value={formData.author} />
-                        <input type="hidden" name="created_by" value={formData.created_by} />
+                        <input
+                            type="hidden"
+                            name="created_by"
+                            value={formData.created_by}
+                        />
 
                         <div className="col-12">
                             <button className="btn btn-primary-600" type="submit">

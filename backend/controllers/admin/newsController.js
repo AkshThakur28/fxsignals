@@ -113,25 +113,27 @@ const newsController = {
                 author,
                 news_type,
                 news_package,
-                created_by
+                created_by,
+                existing_image 
             } = req.body;
 
-            if (!title || !publish_date || !news_desc || !category || !sub_category || !author || !news_type || !news_package || !created_by) {
-                return res.status(400).json({ message: 'All fields are required.' });
-            }
+            if (!id) return res.status(400).json({ message: 'News ID is required.' });
+
+            const existingNews = await NewsModel.getNewsById(id);
+            if (!existingNews) return res.status(404).json({ message: 'News not found.' });
 
             const updatedData = {
                 id,
-                title,
-                news_image: req.file ? req.file.originalname : null,
-                publish_date,
-                news_desc,
-                category,
-                sub_category,
-                author,
-                news_type,
-                news_package,
-                created_by
+                title: title || existingNews.title,
+                publish_date: publish_date || existingNews.publish_date,
+                news_desc: news_desc || existingNews.news_desc,
+                category: category || existingNews.category,
+                sub_category: sub_category || existingNews.sub_category,
+                author: author || existingNews.author,
+                news_type: news_type || existingNews.news_type,
+                news_package: news_package || existingNews.news_package,
+                created_by: created_by || existingNews.created_by,
+                news_image: req.file ? req.file.originalname : existing_image || existingNews.news_image
             };
 
             try {

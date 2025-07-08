@@ -2,6 +2,8 @@ import { Icon } from "@iconify/react/dist/iconify.js";
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { CKEditor } from "@ckeditor/ckeditor5-react";
+import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 
 const AddNewsLayers = () => {
   const navigate = useNavigate();
@@ -227,13 +229,11 @@ const AddNewsLayers = () => {
 
             <div className="col-md-6">
               <label className="form-label">News Description</label>
-              <textarea
-                name="news_desc"
-                className="form-control"
+              <CKEditorClassic
                 value={formData.news_desc}
-                onChange={handleChange}
-                rows={4}
-                required
+                onChange={(data) =>
+                  setFormData((prev) => ({ ...prev, news_desc: data }))
+                }
               />
             </div>
 
