@@ -266,7 +266,6 @@ const authController = {
     }
 
     try {
-      console.log("Password Type:", typeof password, "| Value:", password);
       const hashedPassword = bcrypt.hashSync(password, 10); 
 
       AuthModel.resetPassword(email, hashedPassword)
